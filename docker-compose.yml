@@ -1,0 +1,55 @@
+# Docker Compose configuration for Sentinel Monolith Application
+# Defines multi-container setup with database, backend API, and message queue
+services:
+  # PostgreSQL Database - Primary data storage and source of truth
+  # Stores application data, user information, and system state
+  db:
+    # Using PostgreSQL 15 with Alpine Linux for minimal footprint
+    image: postgres:15-alpine
+    # Database connection credentials and configuration
+    environment :
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: sentinel_db
+    # Persistent volume to store database data across container restarts
+    # Ensures data durability even when containers are recreated
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    
+
+  # Core Engine Backend API - The brain of the application
+  # Handles business logic, API endpoints, and orchestrates the entire system
+  brain:
+    # Python 3.11 slim image for running Django backend
+    image: python:3.11-slim
+    # Mount local code directory for development and live reloading
+    volumes:
+    - ./apps/core-engine:/app
+    # Set working directory inside container
+    working_dir: /app
+    # Expose Django development server on port 8000
+    ports:
+    - "8000:8000"
+    # Environment variables for database connection
+    environment:
+    - DATABASE_URL=postgresql://admin:password123@db:5432/sentinel_db
+    # Startup command: install dependencies, run migrations, start server
+    command: >
+      bash -c "pip install django djangorestframework psycopg2-binary && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    # Ensure database starts before the backend application
+    depends_on:
+    - db
+  # Redis Message Queue - Acts as the post office for the multi-bot pipeline
+  # Handles asynchronous communication between different services and bots
+  redis:
+    # Redis 7 with Alpine Linux for efficient in-memory data structure store
+    image: redis:7-alpine
+    # Expose Redis on default port 6379 for external connections
+    ports:
+      - "6379:6379"
+
+# Named volumes for persistent data storage
+# Ensures data persists across container lifecycle
+volumes:
+  # PostgreSQL data volume - maintains database state
+  postgres_data:
