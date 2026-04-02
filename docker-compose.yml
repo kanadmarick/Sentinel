@@ -1,55 +1,54 @@
-# Docker Compose configuration for Sentinel Monolith Application
-# Defines multi-container setup with database, backend API, and message queue
+# Docker Compose configuration for Sentinel application
+version: '3.8'
+# This configuration sets up three services: a PostgreSQL database, a Redis cache, and the core application (brain).
 services:
-  # PostgreSQL Database - Primary data storage and source of truth
-  # Stores application data, user information, and system state
+# The database service uses the official PostgreSQL image, with environment variables for user, password, and database name. It also includes a health check to ensure the database is ready before the application starts.
   db:
-    # Using PostgreSQL 15 with Alpine Linux for minimal footprint
     image: postgres:15-alpine
-    # Database connection credentials and configuration
-    environment :
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: sentinel_db
-    # Persistent volume to store database data across container restarts
-    # Ensures data durability even when containers are recreated
+    container_name: sentinel_db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+# The database data is stored in a named volume to persist data across container restarts. Resource limits are set to ensure the database does not consume too much memory, which is important for running on an 8GB Mac.      
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    
-
-  # Core Engine Backend API - The brain of the application
-  # Handles business logic, API endpoints, and orchestrates the entire system
-  brain:
-    # Python 3.11 slim image for running Django backend
-    image: python:3.11-slim
-    # Mount local code directory for development and live reloading
-    volumes:
-    - ./apps/core-engine:/app
-    # Set working directory inside container
-    working_dir: /app
-    # Expose Django development server on port 8000
-    ports:
-    - "8000:8000"
-    # Environment variables for database connection
-    environment:
-    - DATABASE_URL=postgresql://admin:password123@db:5432/sentinel_db
-    # Startup command: install dependencies, run migrations, start server
-    command: >
-      bash -c "pip install django djangorestframework psycopg2-binary && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    # Ensure database starts before the backend application
-    depends_on:
-    - db
-  # Redis Message Queue - Acts as the post office for the multi-bot pipeline
-  # Handles asynchronous communication between different services and bots
+    deploy:
+# Limit memory usage to 256MB to ensure it runs smoothly 
+      resources:
+        limits:
+          memory: 256M 
+# The health check uses the pg_isready command to check if the database is ready to accept connections. It runs every 10 seconds, with a timeout of 5 seconds, and will retry up to 5 times before marking the service as unhealthy.          
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+# The Redis service uses the official Redis image, with a memory limit of 128MB to ensure it runs efficiently on an 8GB Mac.
   redis:
-    # Redis 7 with Alpine Linux for efficient in-memory data structure store
     image: redis:7-alpine
-    # Expose Redis on default port 6379 for external connections
+    container_name: sentinel_redis
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+# The brain service is built from the Dockerfile located in the ./apps/core-engine directory. It mounts the application code as a volume for easy development and maps port 8000 to allow access to the application. Environment variables are set for the database connection and Legion IP, and it depends on the database service being healthy before it starts.
+  brain:
+    build: 
+      context: ./apps/core-engine
+      dockerfile: Dockerfile
+    container_name: sentinel_brain
+    volumes:
+      - ./apps/core-engine:/app
     ports:
-      - "6379:6379"
-
-# Named volumes for persistent data storage
-# Ensures data persists across container lifecycle
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+      - LEGION_IP=${LEGION_IP}
+# The brain service depends on the database service being healthy before it starts, ensuring that the application can connect to the database when it launches.      
+    depends_on:
+      db:
+        condition: service_healthy
+# The volumes section defines a named volume for the PostgreSQL data, allowing it to persist across container restarts and ensuring that the database data is not lost when the container is removed.
 volumes:
-  # PostgreSQL data volume - maintains database state
   postgres_data:
