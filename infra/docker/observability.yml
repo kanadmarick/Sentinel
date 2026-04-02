@@ -1,0 +1,34 @@
+# This docker-compose file sets up the ELK stack (Elasticsearch, Logstash, Kibana) for Sentinel's observability.
+# It allows us to collect, store, and visualize logs from the Sentinel application, providing insights into its performance and behavior.
+version: '3.8'
+# The ELK stack consists of three services: Elasticsearch for storing logs, Logstash for processing and forwarding logs, and Kibana for visualizing logs. Each service is configured with appropriate settings to ensure they work together seamlessly.
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: sentinel_es
+# Elasticsearch is configured to run in single-node mode, with security features disabled for simplicity. The Java heap size is set to 2GB to ensure it can handle the log data effectively, especially when running on a machine with limited resources. Port 9200 is exposed for communication with Logstash and Kibana.    
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g" # Using the Legion's RAM power
+    ports:
+      - "9200:9200"
+# Logstash is configured to read log data from the specified pipeline configuration, which processes logs sent from the Sentinel application. It listens on port 12201 for incoming logs in GELF format, which is commonly used for structured logging. Logstash depends on Elasticsearch to ensure that logs are stored properly.
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.12.0
+    container_name: sentinel_logstash
+    volumes:
+# The Logstash pipeline configuration is mounted as a read-only volume, allowing us to easily modify the log processing rules without rebuilding the container. This setup enables us to collect logs from the Sentinel application and forward them to Elasticsearch for storage and analysis.    
+      - ../logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports:
+      - "12201:12201/udp" # Listening for GELF logs from the Sentinel application
+    depends_on:
+      - elasticsearch # Logstash depends on Elasticsearch to ensure that logs are stored properly before it starts processing incoming log data.
+# Kibana is configured to connect to Elasticsearch for visualizing the stored logs. It listens on port 5601, allowing us to access the Kibana dashboard through a web browser. Kibana depends on Elasticsearch to ensure that it can retrieve and display log data effectively.
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    container_name: sentinel_kibana
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
