@@ -1,5 +1,4 @@
 # Docker Compose configuration for Sentinel application
-version: '3.8'
 # This configuration sets up three services: a PostgreSQL database, a Redis cache, and the core application (brain).
 services:
 # The database service uses the official PostgreSQL image, with environment variables for user, password, and database name. It also includes a health check to ensure the database is ready before the application starts.
@@ -38,6 +37,9 @@ services:
       context: ./apps/core-engine
       dockerfile: Dockerfile
     container_name: sentinel_brain
+# The command runs database migrations before starting the Django development server, ensuring that the database schema is up to date when the application starts. This setup allows for a smooth development experience while ensuring that the application can connect to the database and run properly.
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+# The application code is mounted as a volume, allowing for live code changes without needing to rebuild the container. This setup is ideal for development, as it provides immediate feedback on code changes while ensuring that the application can connect to the database and run effectively.    
     volumes:
       - ./apps/core-engine:/app
     ports:
