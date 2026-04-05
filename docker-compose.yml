@@ -39,6 +39,7 @@ services:
     container_name: sentinel_brain
 # The command runs database migrations before starting the Django development server, ensuring that the database schema is up to date when the application starts. This setup allows for a smooth development experience while ensuring that the application can connect to the database and run properly.
     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    working_dir: /app # Set the working directory to /app, which is where the application code is mounted. This ensures that the commands run in the correct context and can access the application code and dependencies.
 # The application code is mounted as a volume, allowing for live code changes without needing to rebuild the container. This setup is ideal for development, as it provides immediate feedback on code changes while ensuring that the application can connect to the database and run effectively.    
     volumes:
       - ./apps/core-engine:/app
@@ -51,6 +52,19 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  ingestion:
+    build:
+      context: ./apps/ingestion
+      dockerfile: Dockerfile
+    container_name: sentinel_ingestion
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./apps/ingestion:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      redis:
+        condition: service_started
 # The volumes section defines a named volume for the PostgreSQL data, allowing it to persist across container restarts and ensuring that the database data is not lost when the container is removed.
 volumes:
   postgres_data:
