@@ -1,23 +1,30 @@
 # --- Variables ---
-# Mac-side core services
-COMPOSE_CORE = docker-compose.yml
-# Legion-side infra services (referenced by path)
+# All compose files now live under infra/docker/
+COMPOSE_CORE = infra/docker/core.yml
+COMPOSE_INGESTION = infra/docker/ingestion.yml
 COMPOSE_INFRA = infra/docker/observability.yml
 DOCKER = docker
 DOCKER_CONFIG_LOCAL = $(CURDIR)/.docker-local
-DOCKER_COMPOSE = DOCKER_CONFIG=$(DOCKER_CONFIG_LOCAL) docker-compose
+ENV_EXPORT = set -a; . ./.env; set +a; export DB_USER="$$VAULT_DB_USER" DB_PASSWORD="$$VAULT_DB_PASS" DB_NAME="$$VAULT_DB_NAME";
+DOCKER_COMPOSE = $(ENV_EXPORT) DOCKER_CONFIG=$(DOCKER_CONFIG_LOCAL) docker-compose
 
 # --- Help Command ---
+.PHONY: help build up down logs logs-brain logs-ingestion logs-prometheus logs-status logs-watchdog topology mm migrate infra-up infra-down shell-brain shell-ingestion shell-db clean
+
 help:
 	@echo "Sentinel Bunker Management Commands:"
-	@echo "  make build          - Build the Mac-side application services (Brain, Ingestion)"
-	@echo "  make up             - Start the Mac core services (DB, Redis, Brain, Ingestion)"
-	@echo "  make down           - Stop the Mac core services"
+	@echo "  make build          - Build all application services"
+	@echo "  make up             - Start all services (Ingestion and Core)"
+	@echo "  make down           - Stop all services"
 	@echo "  make infra-up       - Start the Legion-side ELK/Observability stack"
 	@echo "  make infra-down     - Stop the Legion-side stack"
-	@echo "  make logs           - Tail logs from Brain and Ingestion"
+	@echo "  make logs           - Tail logs from all running services"
 	@echo "  make logs-brain     - Tail logs from Brain only"
 	@echo "  make logs-ingestion - Tail logs from Ingestion only"
+	@echo "  make logs-prometheus - Tail logs from Prometheus only"
+	@echo "  make logs-status    - Tail logs from the Status API only"
+	@echo "  make logs-watchdog  - Tail logs from the Watchdog only"
+	@echo "  make topology       - Generate topology_map.md from docker-compose services"
 	@echo "  make mm app=<name>  - Create migrations for a specific Django app"
 	@echo "  make migrate        - Apply Django migrations in the Brain container"
 	@echo "  make shell-brain    - Open a shell in the Brain container"
@@ -33,23 +40,30 @@ docker-config:
 	fi
 
 # --- Mac Execution Node Commands ---
-# Note: Run these while in the Sentinel root on your MacBook Air
+# Note: Run these while in the Sentinel root
 build:
 	@$(MAKE) docker-config
+	# Build images from both compose files to prevent image drift
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) build
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) build
 
 up:
 	@$(MAKE) docker-config
+	# Start the ingestion stack first to create the shared network
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) up -d
+	# Start the core stack which connects to the shared network
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) up -d
-	@echo "🚀 Sentinel Core is running on the MacBook Air."
+	@echo "🚀 Sentinel Core & Ingestion are running (Brain: 8000, Ingestion: 8001, Status API: 8002, Prometheus: 9090, Redis: 6379)."
 
 down:
 	@$(MAKE) docker-config
+	# Stop both stacks
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) down
 
 logs:
 	@$(MAKE) docker-config
-	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f brain ingestion
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) -f $(COMPOSE_INGESTION) logs -f
 
 logs-brain:
 	@$(MAKE) docker-config
@@ -57,7 +71,23 @@ logs-brain:
 
 logs-ingestion:
 	@$(MAKE) docker-config
-	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f ingestion
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) logs -f ingestion celery_worker
+
+logs-prometheus:
+	@$(MAKE) docker-config
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f prometheus
+
+logs-status:
+	@$(MAKE) docker-config
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f status-api
+
+logs-watchdog:
+	@$(MAKE) docker-config
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f watchdog
+
+topology:
+	@$(MAKE) docker-config
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) run --rm -v $(CURDIR):/workspace -w /workspace status-api python src/generate_topology.py
 
 # Create migrations for a specific Django app label, e.g. make mm app=registry
 mm:
@@ -98,6 +128,7 @@ shell-db:
 # Access the Redis container's CLI
 clean:
 	@$(MAKE) docker-config
-	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down -v
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down -v --remove-orphans
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) down -v --remove-orphans
 	$(DOCKER) system prune -f
 	@echo "🧹 System cleaned."

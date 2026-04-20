@@ -1,0 +1,50 @@
+# Docker Compose configuration for Sentinel Ingestion stack
+# Paths are relative to infra/docker/ — project root is ../../
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: sentinel_redis
+    networks:
+      - sentinel_mesh
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  ingestion:
+    build:
+      context: ../../apps/ingestion
+      dockerfile: Dockerfile
+    container_name: sentinel_ingestion
+    networks:
+      - sentinel_mesh
+    ports:
+      - "8001:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+
+  celery_worker:
+    build:
+      context: ../../apps/ingestion
+      dockerfile: Dockerfile
+    container_name: sentinel_celery_worker
+    command: celery -A celery_app worker --loglevel=info
+    networks:
+      - sentinel_mesh
+    environment:
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+
+networks:
+  sentinel_mesh:
+    name: sentinel_mesh
+    driver: bridge
+
+volumes:
+  redis_data:

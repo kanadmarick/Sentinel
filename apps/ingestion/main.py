@@ -23,6 +23,12 @@ class Heartbeat(BaseModel):
     )
 
 
+@app.get("/status")
+async def get_status():
+    """Health check endpoint for smoke tests."""
+    return {"status": "operational", "service": "ingestion"}
+
+
 @app.post("/ingest/pulse")# Define a POST endpoint for ingesting heartbeat data
 async def ingest_pulse(heartbeat: Heartbeat, request: Request): # Define the endpoint function that takes a Heartbeat object and the Request object
     client_ip = request.client.host if request.client else "unknown" # Get the client's IP address from the request, or set it to "unknown" if not available

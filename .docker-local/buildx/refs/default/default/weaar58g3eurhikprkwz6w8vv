@@ -1,0 +1,1 @@
+{"Target":"celery_worker","LocalPath":"/mnt/d/Portfolio/sentinel-monolith/apps/ingestion","DockerfilePath":"/mnt/d/Portfolio/sentinel-monolith/apps/ingestion/Dockerfile","GroupRef":"4csm2qwinremz4hsc5u4jp8tt"}

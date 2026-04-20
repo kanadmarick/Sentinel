@@ -1,0 +1,8 @@
+global: # Global configuration settings for Prometheus
+  scrape_interval: 5s  # Set the default scrape interval to 5 seconds for more frequent monitoring
+
+
+scrape_configs: # Define the scrape configuration for the brain service
+  - job_name: "sentinel_brain"
+    static_configs:
+      - targets: ["host.docker.internal:8000"]  # Scrape the brain service running on the host machine  

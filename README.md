@@ -5,11 +5,15 @@ Sentinel is a local-first observability and AI-orchestration stack with a Django
 ## Repository Structure
 
 - `apps/core-engine`: Django app ("Brain")
-- `apps/ingestion`: FastAPI ingestion service
+- `apps/ingestion`: FastAPI ingestion service + Celery worker
+- `apps/status-api`: FastAPI status API (ZMQ → Prometheus bridge)
+- `apps/watchdog`: System telemetry publisher (ZMQ)
+- `src/`: Shared utilities (vault_manager, generate_topology)
 - `database/init_sentinel_db.sql`: Sentinel schema bootstrap for PostgreSQL
 - `database/setup_vault.sh`: Script to provision Vault DB user/schema on local PostgreSQL
+- `infra/docker/core.yml`: Core local services (db, brain, status-api, watchdog, prometheus)
+- `infra/docker/ingestion.yml`: Ingestion stack (redis, ingestion, celery_worker)
 - `infra/docker/observability.yml`: ELK/observability compose stack
-- `docker-compose.yml`: Core local services (db, redis, brain, ingestion)
 - `Makefile`: Operational shortcuts for build/up/down/logs/migrations
 
 ## Architecture (Local Core)
@@ -107,11 +111,7 @@ python test_connection.py
 
 ## Celery Task App
 
-`celery_app.py` defines a basic Redis-backed Celery app and a sample task:
-
-```bash
-celery -A celery_app worker --loglevel=info
-```
+`apps/ingestion/celery_app.py` defines the Redis-backed Celery app and sample tasks. It is baked into the ingestion Docker image (no host bind mount required). The worker is started via `docker-compose` as the `celery_worker` service in `infra/docker/ingestion.yml`.
 
 ## Observability Stack
 
@@ -134,7 +134,47 @@ make infra-down
 - `make shell-db`: open PostgreSQL shell in DB container
 - `make clean`: remove containers, volumes, and prune Docker artifacts
 
+## Smoke Tests
+
+A basic smoke test script validates all core service endpoints:
+
+```bash
+bash test/test_reflex.sh
+```
+
+Checks:
+- `http://localhost:8000/` — brain (Django core engine)
+- `http://localhost:8001/status` — ingestion service health
+- `http://localhost:8002/metrics` — status-api Prometheus metrics bridge
+
+## Development Workflow (No Live Reload)
+
+All services run entirely from their Docker images — there are no host bind mounts. This eliminates WSL2 / Docker Desktop mount-collision errors on Windows. Code changes require a rebuild:
+
+```bash
+make build       # rebuild all images
+make up          # start all stacks
+```
+
+To rebuild a single service:
+
+```bash
+docker-compose -f infra/docker/core.yml build --no-cache brain
+docker-compose -f infra/docker/ingestion.yml build --no-cache ingestion
+```
+
+## Service Health Endpoints
+
+| Service | URL | Notes |
+|---|---|---|
+| brain | `http://localhost:8000/` | Django core engine |
+| ingestion | `http://localhost:8001/status` | FastAPI, returns `{"status": "operational"}` |
+| ingestion (ingest) | `http://localhost:8001/ingest/pulse` | POST endpoint |
+| status-api | `http://localhost:8002/status` | ZMQ → FastAPI bridge |
+| status-api (metrics) | `http://localhost:8002/metrics` | Prometheus scrape endpoint |
+
 ## Notes
 
 - `docker-compose` command is used by the `Makefile`. If your machine only has `docker compose`, either install the standalone plugin or update the `DOCKER_COMPOSE` variable in `Makefile`.
+- No host bind mounts are used — services are fully image-based for WSL2 + Docker Desktop compatibility.
 - Core services are optimized for lightweight local development.

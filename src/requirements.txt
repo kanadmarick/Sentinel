@@ -1,0 +1,6 @@
+fastapi==0.110.0
+uvicorn==0.28.0
+pyzmq==26.4.0
+psutil==7.0.0
+PyYAML==6.0.2
+prometheus-client==0.22.1

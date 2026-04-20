@@ -14,3 +14,7 @@ __pycache__/
 Thumbs.db
 .vscode/
 .env
+.obsidian/
+.github/
+.notebooks/
+notebooks/ venv_wsl/
