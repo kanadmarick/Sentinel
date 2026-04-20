@@ -1,4 +1,4 @@
-# Sentinel Monolith
+# Sentinel
 
 Sentinel is a local-first observability and AI-orchestration stack with a Django core engine, a FastAPI ingestion service, Redis-backed Celery workers, and PostgreSQL persistence.
 
