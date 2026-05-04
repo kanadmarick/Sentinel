@@ -5,4 +5,4 @@ global: # Global configuration settings for Prometheus
 scrape_configs: # Define the scrape configuration for the brain service
   - job_name: "sentinel_brain"
     static_configs:
-      - targets: ["host.docker.internal:8000"]  # Scrape the brain service running on the host machine  
+      - targets: ["brain:8000"]

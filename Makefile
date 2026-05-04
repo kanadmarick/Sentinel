@@ -3,13 +3,12 @@
 COMPOSE_CORE = infra/docker/core.yml
 COMPOSE_INGESTION = infra/docker/ingestion.yml
 COMPOSE_INFRA = infra/docker/observability.yml
-DOCKER = docker
-DOCKER_CONFIG_LOCAL = $(CURDIR)/.docker-local
+DOCKER = podman
 ENV_EXPORT = set -a; . ./.env; set +a; export DB_USER="$$VAULT_DB_USER" DB_PASSWORD="$$VAULT_DB_PASS" DB_NAME="$$VAULT_DB_NAME";
-DOCKER_COMPOSE = $(ENV_EXPORT) DOCKER_CONFIG=$(DOCKER_CONFIG_LOCAL) docker-compose
+DOCKER_COMPOSE = $(ENV_EXPORT) podman-compose
 
 # --- Help Command ---
-.PHONY: help build up down logs logs-brain logs-ingestion logs-prometheus logs-status logs-watchdog topology mm migrate infra-up infra-down shell-brain shell-ingestion shell-db clean
+.PHONY: help build up down logs logs-brain logs-ingestion logs-prometheus logs-status logs-watchdog topology mm migrate infra-up infra-down shell-brain shell-ingestion shell-db clean docker-config
 
 help:
 	@echo "Sentinel Bunker Management Commands:"
@@ -33,60 +32,48 @@ help:
 	@echo "  make docker-config  - Create local Docker config without keychain"
 	@echo "  make clean          - Remove all containers and volumes (Fresh start)"
 
+# No-op kept for compatibility if referenced elsewhere
 docker-config:
-	@mkdir -p $(DOCKER_CONFIG_LOCAL)
-	@if [ ! -f $(DOCKER_CONFIG_LOCAL)/config.json ]; then \
-		echo '{"auths": {}}' > $(DOCKER_CONFIG_LOCAL)/config.json; \
-	fi
+	@true
 
-# --- Mac Execution Node Commands ---
+# --- Execution Node Commands ---
 # Note: Run these while in the Sentinel root
 build:
-	@$(MAKE) docker-config
 	# Build images from both compose files to prevent image drift
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) build
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) build
 
 up:
-	@$(MAKE) docker-config
 	# Start the ingestion stack first to create the shared network
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) up -d
 	# Start the core stack which connects to the shared network
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) up -d
-	@echo "🚀 Sentinel Core & Ingestion are running (Brain: 8000, Ingestion: 8001, Status API: 8002, Prometheus: 9090, Redis: 6379)."
+	@set -a; . ./.env; set +a; echo "🚀 Sentinel Core & Ingestion are running (Brain: $$BRAIN_HOST_PORT, Ingestion: $$INGESTION_HOST_PORT, Status API: $$STATUS_API_HOST_PORT, Prometheus: $$PROMETHEUS_HOST_PORT)."
 
 down:
-	@$(MAKE) docker-config
 	# Stop both stacks
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) down
 
 logs:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) -f $(COMPOSE_INGESTION) logs -f
 
 logs-brain:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f brain
 
 logs-ingestion:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) logs -f ingestion celery_worker
 
 logs-prometheus:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f prometheus
 
 logs-status:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f status-api
 
 logs-watchdog:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) logs -f watchdog
 
 topology:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) run --rm -v $(CURDIR):/workspace -w /workspace status-api python src/generate_topology.py
 
 # Create migrations for a specific Django app label, e.g. make mm app=registry
@@ -95,40 +82,38 @@ mm:
 		echo "Usage: make mm app=<django_app_label>"; \
 		exit 1; \
 	fi
-	docker exec -i sentinel_brain python manage.py makemigrations $(app)
+	podman exec -i sentinel_brain python manage.py makemigrations $(app)
 
 # Apply all migrations
 migrate:
-	docker exec -i sentinel_brain python manage.py migrate
+	podman exec -i sentinel_brain python manage.py migrate
 
 # --- Legion Observability Node Commands ---
 # Note: Run these while in the Sentinel root on your Legion
 infra-up:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INFRA) up -d
 	@echo "📊 Observability Stack is running on the Legion."
 
 infra-down:
-	@$(MAKE) docker-config
 	$(DOCKER_COMPOSE) -f $(COMPOSE_INFRA) down
 
 # --- Utility Commands ---
 
 # Access the Brain container's shell
 shell-brain:
-	docker exec -it sentinel_brain /bin/bash
+	podman exec -it sentinel_brain /bin/bash
 
 # Access the Ingestion container's shell
 shell-ingestion:
-	docker exec -it sentinel_ingestion /bin/bash
+	podman exec -it sentinel_ingestion /bin/bash
 
 # Access the DB container's psql shell
 shell-db:
-	docker exec -it sentinel_db psql -U sentinel_admin -d sentinel_db
-# Access the Redis container's CLI
+	podman exec -it sentinel_db psql -U sentinel_admin -d sentinel_db
+
+# Remove all containers and volumes (fresh start)
 clean:
-	@$(MAKE) docker-config
-	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down -v --remove-orphans
-	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) down -v --remove-orphans
-	$(DOCKER) system prune -f
+	$(DOCKER_COMPOSE) -f $(COMPOSE_CORE) down -v
+	$(DOCKER_COMPOSE) -f $(COMPOSE_INGESTION) down -v
+	podman system prune -f
 	@echo "🧹 System cleaned."
